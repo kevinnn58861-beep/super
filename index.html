@@ -1,30 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Realistic 3D Solar Particles</title>
+    <title>Proyek Planet 3D - Final Stable</title>
     <style>
-        body { margin: 0; overflow: hidden; background: radial-gradient(circle, #050505 0%, #000 100%); font-family: 'Segoe UI', sans-serif; }
-        #video_container { position: absolute; bottom: 20px; right: 20px; width: 180px; border-radius: 15px; border: 2px solid #333; transform: scaleX(-1); z-index: 10; }
-        video { width: 100%; display: block; border-radius: 13px; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 15px; border-left: 5px solid #ffaa00; pointer-events: none; z-index: 10; }
-        .planet { color: #ffaa00; font-weight: bold; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #video_container { position: absolute; bottom: 20px; right: 20px; width: 220px; border: 2px solid #555; border-radius: 12px; overflow: hidden; transform: scaleX(-1); z-index: 10; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        video { width: 100%; display: block; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.85); padding: 20px; border-radius: 15px; border-left: 6px solid #f39c12; pointer-events: none; z-index: 10; min-width: 250px; }
+        .active-planet { color: #f39c12; font-weight: bold; font-size: 1.2em; text-transform: uppercase; margin-bottom: 5px; }
+        #loading-screen { position: absolute; width: 100%; height: 100%; background: #000; color: #f39c12; display: flex; justify-content: center; align-items: center; z-index: 100; font-family: monospace; }
     </style>
 </head>
 <body>
 
+<div id="loading-screen">MENGAKTIFKAN SENSOR QUANTUM...</div>
+
 <div id="ui">
-    <h2 style="margin:0 0 10px 0; color:white;">Solar Architect v2</h2>
-    <p><span class="planet">[Kepal]</span> Matahari (Plasma)</p>
-    <p><span class="planet">[1 Jari]</span> Bumi (Biru/Hijau)</p>
-    <p><span class="planet">[2 Jari]</span> Mars (Merah Karat)</p>
-    <p><span class="planet">[3 Jari]</span> Saturnus (Tan/Emas)</p>
-    <p style="font-size:12px; color:#888;">Putar tangan untuk zoom</p>
+    <div id="current-name" class="active-planet">Menunggu Sensor...</div>
+    <p style="margin: 5px 0; font-size: 14px; opacity: 0.8;">Gerakkan tangan untuk kontrol:</p>
+    <ul style="list-style: none; padding: 0; font-size: 13px;">
+        <li>✊ <b>Kepal:</b> Matahari (Energi)</li>
+        <li>☝️ <b>1 Jari:</b> Bumi (Kehidupan)</li>
+        <li>✌️ <b>2 Jari:</b> Mars (Gurun Merah)</li>
+        <li>🖐️ <b>Buka:</b> Saturnus (Cincin Gas)</li>
+    </ul>
+    <small style="color: #888;">Tips: Putar pergelangan tangan untuk ZOOM</small>
 </div>
 
 <div id="video_container">
-    <video id="input_video"></video>
+    <video id="input_video" playsinline></video>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -32,166 +38,183 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 
 <script>
-// --- 1. SETTINGS & SCENE ---
-const particleCount = 150000;
+// --- KONFIGURASI ENGINE ---
+const particleCount = 120000; // Dikurangi sedikit agar FPS stabil di HP/Laptop standar
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: false });
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
 camera.position.z = 25;
 
-// --- 2. DATA STRUCTURES ---
+// --- STORAGE DATA PLANET ---
 const geometry = new THREE.BufferGeometry();
 const posArray = new Float32Array(particleCount * 3);
-const colArray = new Float32Array(particleCount * 3); // Current Colors Buffer
+const colArray = new Float32Array(particleCount * 3);
 
-// Shapes and Colors data
 const data = {
-    sun: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3) },
-    earth: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3) },
-    mars: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3) },
-    saturn: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3) }
+    sun: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3), name: "Matahari" },
+    earth: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3), name: "Bumi" },
+    mars: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3), name: "Mars" },
+    saturn: { pos: new Float32Array(particleCount * 3), col: new Float32Array(particleCount * 3), name: "Saturnus" }
 };
 
-// Generator Bola Parametrik
-function createSphereData(target, radius, type) {
+// --- GENERATOR GEOMETRI REALISTIK ---
+function initPlanets() {
+    const color = new THREE.Color();
     for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
         const phi = Math.acos(-1 + (2 * i) / particleCount);
         const theta = Math.sqrt(particleCount * Math.PI) * phi;
-        
-        const x = radius * Math.cos(theta) * Math.sin(phi);
-        const y = radius * Math.sin(theta) * Math.sin(phi);
-        const z = radius * Math.cos(phi);
-        target.pos[idx] = x; target.pos[idx+1] = y; target.pos[idx+2] = z;
 
-        const c = new THREE.Color();
-        
-        if (type === 'sun') {
-            // MATAHARI: Plasma Oranye terang ke Kuning
-            c.setHex(0xffaa00);
-            const n = Math.sin(theta * 10) * Math.cos(phi * 10);
-            if (n > 0.3) c.setHex(0xffff00); // Bintik kuning cerah
-        } else if (type === 'earth') {
-            // BUMI: Realistis (Biru Laut, Hijau Benua, Putih Kutub)
-            // Noise Term untuk simulasi geografi
-            const n = Math.sin(x*0.5)*Math.cos(y*0.5) + Math.sin(z*1.2);
-            if (Math.abs(y) > radius * 0.85) c.setHex(0xffffff); // Kutub Putih
-            else if (n > 0.15) c.setHex(0x228b22); // Benua Hijau
-            else if (n > 0.05) c.setHex(0x32cd32); // Pantai Hijau Muda
-            else c.setHex(0x0a2a4a); // Laut Biru Tua
-        } else if (type === 'mars') {
-            // MARS: Merah Karat, Merah Tua, Cokelat
-            const n = Math.sin(theta * 5) * Math.cos(phi * 8);
-            if (n > 0.2) c.setHex(0x8b4513); // Cokelat Tanah
-            else if (n > -0.2) c.setHex(0xc24022); // Merah Karat Utama
-            else c.setHex(0xa52a2a); // Merah Marun Tua
+        // 1. MATAHARI (Besar & Membara)
+        const rSun = 8.5;
+        data.sun.pos[idx] = rSun * Math.cos(theta) * Math.sin(phi);
+        data.sun.pos[idx+1] = rSun * Math.sin(theta) * Math.sin(phi);
+        data.sun.pos[idx+2] = rSun * Math.cos(phi);
+        color.setHSL(0.1, 1, 0.5 + Math.random() * 0.2); 
+        data.sun.col[idx] = color.r; data.sun.col[idx+1] = color.g; data.sun.col[idx+2] = color.b;
+
+        // 2. BUMI (Biru, Hijau, Awan)
+        const rEarth = 6;
+        data.earth.pos[idx] = rEarth * Math.cos(theta) * Math.sin(phi);
+        data.earth.pos[idx+1] = rEarth * Math.sin(theta) * Math.sin(phi);
+        data.earth.pos[idx+2] = rEarth * Math.cos(phi);
+        const noise = Math.sin(data.earth.pos[idx] * 0.5) * Math.cos(data.earth.pos[idx+1] * 0.5);
+        if (Math.abs(data.earth.pos[idx+1]) > 5) color.setHex(0xffffff); // Kutub
+        else if (noise > 0.1) color.setHex(0x228b22); // Benua
+        else color.setHex(0x0055ff); // Samudera
+        data.earth.col[idx] = color.r; data.earth.col[idx+1] = color.g; data.earth.col[idx+2] = color.b;
+
+        // 3. MARS (Karat & Debu)
+        const rMars = 5;
+        data.mars.pos[idx] = rMars * Math.cos(theta) * Math.sin(phi);
+        data.mars.pos[idx+1] = rMars * Math.sin(theta) * Math.sin(phi);
+        data.mars.pos[idx+2] = rMars * Math.cos(phi);
+        color.setHSL(0.02, 0.8, 0.3 + Math.random() * 0.2);
+        data.mars.col[idx] = color.r; data.mars.col[idx+1] = color.g; data.mars.col[idx+2] = color.b;
+
+        // 4. SATURNUS (Planet + Cincin)
+        if (i < particleCount * 0.5) {
+            const rSat = 4;
+            data.saturn.pos[idx] = rSat * Math.cos(theta) * Math.sin(phi);
+            data.saturn.pos[idx+1] = rSat * Math.sin(theta) * Math.sin(phi);
+            data.saturn.pos[idx+2] = rSat * Math.cos(phi);
+            color.setHex(0xe3cc9a);
+        } else {
+            const ringR = 6 + Math.random() * 4;
+            const ringA = Math.random() * Math.PI * 2;
+            data.saturn.pos[idx] = Math.cos(ringA) * ringR;
+            data.saturn.pos[idx+1] = (Math.random() - 0.5) * 0.2;
+            data.saturn.pos[idx+2] = Math.sin(ringA) * ringR;
+            color.setHex(0xc5ab6e);
         }
-        target.col[idx] = c.r; target.col[idx+1] = c.g; target.col[idx+2] = c.b;
+        data.saturn.col[idx] = color.r; data.saturn.col[idx+1] = color.g; data.saturn.col[idx+2] = color.b;
     }
 }
 
-// Init Shapes
-createSphereData(data.sun, 8, 'sun');
-createSphereData(data.earth, 6.5, 'earth');
-createSphereData(data.mars, 5.5, 'mars');
+initPlanets();
 
-// Saturn Khusus (Inti + Cincin)
-for (let i = 0; i < particleCount; i++) {
-    const idx = i * 3;
-    const c = new THREE.Color();
-    if (i < particleCount * 0.45) { // Saturn Core
-        const phi = Math.acos(-1 + (2 * i) / (particleCount * 0.45));
-        const theta = Math.sqrt(particleCount * 0.45 * Math.PI) * phi;
-        data.saturn.pos[idx] = 4 * Math.cos(theta) * Math.sin(phi);
-        data.saturn.pos[idx+1] = 4 * Math.sin(theta) * Math.sin(phi);
-        data.saturn.pos[idx+2] = 4 * Math.cos(phi);
-        c.setHex(0xd2b48c); // Krem (Tan)
-    } else { // Saturn Rings
-        const r = 6 + Math.random() * 4.5;
-        const a = Math.random() * Math.PI * 2;
-        data.saturn.pos[idx] = Math.cos(a) * r;
-        data.saturn.pos[idx+1] = (Math.random() - 0.5) * 0.2;
-        data.saturn.pos[idx+2] = Math.sin(a) * r;
-        c.setHex(0xeee8aa); // Emas Pucat cerah
-    }
-    data.saturn.col[idx] = c.r; data.saturnCol = c.g; data.saturn.col[idx+2] = c.b;
-}
-
-// Initial State (Sun)
-for(let i=0; i<particleCount*3; i++) { posArray[i] = data.sun.pos[i]; colArray[i] = data.sun.col[i]; }
 geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
 geometry.setAttribute('color', new THREE.BufferAttribute(colArray, 3));
 
-// Material: AdditiveBlending membuat warna tumpang tindih lebih bercahaya
-const material = new THREE.PointsMaterial({ size: 0.045, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+const material = new THREE.PointsMaterial({
+    size: 0.045,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+});
+
 const points = new THREE.Points(geometry, material);
 scene.add(points);
 
-// --- 3. HAND TRACKING ---
-let currentTarget = data.sun;
-let handScale = 1;
+// --- STATE MANAGEMENT ---
+let currentShape = data.sun;
+let targetZoom = 1;
+const nameUI = document.getElementById('current-name');
 
-const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-hands.setOptions({ maxNumHands: 1, minDetectionConfidence: 0.7 });
+// --- SENSOR TANGAN (DENGAN RE-CONNECT LOGIC) ---
+const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
 
-hands.onResults((res) => {
-    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-        const pts = res.multiHandLandmarks[0];
-        points.position.x = THREE.MathUtils.lerp(points.position.x, (pts[9].x - 0.5) * -40, 0.1);
-        points.position.y = THREE.MathUtils.lerp(points.position.y, (pts[9].y - 0.5) * -30, 0.1);
+hands.onResults((results) => {
+    document.getElementById('loading-screen').style.display = 'none';
+    
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const hand = results.multiHandLandmarks[0];
 
-        // Zoom based on tilt (wrist rotation)
-        const dx = pts[9].x - pts[0].x; const dy = pts[9].y - pts[0].y;
-        const tilt = Math.abs(Math.atan2(dy, dx) + Math.PI/2);
-        handScale = THREE.MathUtils.lerp(handScale, 1.0 + tilt * 2.8, 0.1);
+        // 1. Posisi Planet Mengikuti Tangan (Smooth Lerp)
+        const tx = (hand[9].x - 0.5) * -45;
+        const ty = (hand[9].y - 0.5) * -35;
+        points.position.x += (tx - points.position.x) * 0.15;
+        points.position.y += (ty - points.position.y) * 0.15;
 
-        // Detect fingers for target shape
-        const iU = pts[8].y < pts[6].y - 0.05;
-        const mU = pts[12].y < pts[10].y - 0.05;
-        const rU = pts[16].y < pts[14].y - 0.05;
+        // 2. Deteksi Gesture
+        const indexUp = hand[8].y < hand[6].y;
+        const middleUp = hand[12].y < hand[10].y;
+        const ringUp = hand[16].y < hand[14].y;
+        const pinkyUp = hand[20].y < hand[18].y;
 
-        if (iU && mU && rU) currentTarget = data.saturn;
-        else if (iU && mU) currentTarget = data.mars;
-        else if (iU) currentTarget = data.earth;
-        else currentTarget = data.sun;
+        if (indexUp && middleUp && ringUp && pinkyUp) {
+            currentShape = data.saturn;
+        } else if (indexUp && middleUp) {
+            currentShape = data.mars;
+        } else if (indexUp) {
+            currentShape = data.earth;
+        } else {
+            currentShape = data.sun;
+        }
+        nameUI.innerText = currentShape.name;
+
+        // 3. Zoom Berdasarkan Kemiringan Tangan
+        const angle = Math.abs(Math.atan2(hand[9].y - hand[0].y, hand[9].x - hand[0].x) + Math.PI/2);
+        targetZoom = 1.0 + angle * 3;
     }
 });
 
-new Camera(document.getElementById('input_video'), {
-    onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
+const videoElement = document.getElementById('input_video');
+const cameraUtils = new Camera(videoElement, {
+    onFrame: async () => { await hands.send({ image: videoElement }); },
     width: 640, height: 480
-}).start();
+});
+cameraUtils.start();
 
-// --- 4. ANIMATION & MORPH LOOP ---
+// --- ANIMATION LOOP (SINKRONISASI GPU) ---
 function animate() {
     requestAnimationFrame(animate);
-    const pos = geometry.attributes.position.array;
-    const col = geometry.attributes.color.array;
+    
+    const positions = geometry.attributes.position.array;
+    const colors = geometry.attributes.color.array;
 
     for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
-        // Position Morph (Smooth)
-        pos[idx] += (currentTarget.pos[idx] - pos[idx]) * 0.1;
-        pos[idx+1] += (currentTarget.pos[idx+1] - pos[idx+1]) * 0.1;
-        pos[idx+2] += (currentTarget.pos[idx+2] - pos[idx+2]) * 0.1;
+        // Morphing Posisi (Lerp)
+        positions[idx] += (currentShape.pos[idx] - positions[idx]) * 0.1;
+        positions[idx+1] += (currentShape.pos[idx+1] - positions[idx+1]) * 0.1;
+        positions[idx+2] += (currentShape.pos[idx+2] - positions[idx+2]) * 0.1;
 
-        // Color Morph (Smooth) - NEW LOGIC
-        col[idx] += (currentTarget.col[idx] - col[idx]) * 0.1;
-        col[idx+1] += (currentTarget.col[idx+1] - col[idx+1]) * 0.1;
-        col[idx+2] += (currentTarget.col[idx+2] - col[idx+2]) * 0.1;
+        // Morphing Warna (Lerp)
+        colors[idx] += (currentShape.col[idx] - colors[idx]) * 0.1;
+        colors[idx+1] += (currentShape.col[idx+1] - colors[idx+1]) * 0.1;
+        colors[idx+2] += (currentShape.col[idx+2] - colors[idx+2]) * 0.1;
     }
-    
+
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.color.needsUpdate = true;
-    points.scale.setScalar(handScale);
-    points.rotation.y += 0.005;
+    
+    // Smooth Zoom & Rotation
+    points.scale.setScalar(THREE.MathUtils.lerp(points.scale.x, targetZoom, 0.1));
+    points.rotation.y += 0.006;
+    
     renderer.render(scene, camera);
 }
 animate();
 
+// Resize Handler
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
